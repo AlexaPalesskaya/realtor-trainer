@@ -572,11 +572,11 @@ let AEL=null, AMAN=null;
 try{fetch('audio/manifest.json',{cache:'no-cache'}).then(r=>r.ok?r.json():null).then(j=>{if(j){AMAN=j;if(tab==='audio'&&!AP.playing)render()}}).catch(()=>{})}catch(e){}
 const hasQA=()=>!!AMAN&&Object.values(AMAN).some(e=>e&&e.qa);
 const useFiles=c=>!!AMAN&&c.eng!=='tts'&&(c.mode!=='qa'||hasQA());
-function fileUrl(n){return 'audio/'+String(n).padStart(3,'0')+(AP.fmode==='qa'?'-qa':'')+'.mp3'}
+function fileUrl(n){return 'audio/'+String(n).padStart(3,'0')+((AP.fmode==='qa'||AP.part==='qa')?'-qa':'')+'.mp3'}
 function fEnsure(){
   if(AEL)return AEL;
   AEL=new Audio();AEL.preload='auto';
-  AEL.addEventListener('ended',()=>{if(AP.engine!=='file')return;if(AP.qi+1<AP.list.length){AP.qi++;fLoad(true)}else{AP.playing=false;AP.done=true;apUI()}});
+  AEL.addEventListener('ended',()=>{if(AP.engine!=='file')return;const e=AMAN[AP.list[AP.qi]];if(AP.fmode==='listen'&&AP.fqa&&AP.part!=='qa'&&e&&e.qa){AP.part='qa';fLoad(true);return}AP.part='main';if(AP.qi+1<AP.list.length){AP.qi++;fLoad(true)}else{AP.playing=false;AP.done=true;apUI()}});
   AEL.addEventListener('timeupdate',fTick);
   AEL.addEventListener('play',()=>{if(AP.engine==='file'){AP.playing=true;apUI()}});
   AEL.addEventListener('pause',()=>{if(AP.engine==='file'&&!AEL.ended){AP.playing=false;apUI()}});
@@ -586,16 +586,16 @@ function fLoad(play){const a=fEnsure();a.src=fileUrl(AP.list[AP.qi]);a.playbackR
 function fMeta(){return AMAN&&AMAN[AP.list[AP.qi]]}
 function fPauseEnd(m){return m.t+0.3+Math.min(60,acfg().fpause||60)}
 function fTick(){
-  if(AP.engine!=='file')return;const m=fMeta();if(!m)return;if(AP.fmode==='qa'){apUI();return}const a=AEL,tt=a.currentTime,c=acfg();
+  if(AP.engine!=='file')return;const m=fMeta();if(!m)return;if(AP.fmode==='qa'||AP.part==='qa'){apUI();return}const a=AEL,tt=a.currentTime,c=acfg();
   if(AP.fmode==='listen'){if(tt>=m.t&&tt<m.r-0.1)a.currentTime=m.r}
   else if(tt>=fPauseEnd(m)&&tt<m.r-0.8)a.currentTime=m.r-0.8;
   apUI();
 }
 function apStopSpeech(){AP.tok++;clearInterval(AP.iv);AP.iv=null;try{speechSynthesis.cancel()}catch(e){}}
-function apLoad(list,title){apStopSpeech();if(AEL){AEL.pause()}AP.engine=useFiles(acfg())?'file':'tts';if(AP.engine==='file'){AP.fmode=acfg().mode;list=list.filter(n=>AMAN[n]&&(AP.fmode==='qa'?AMAN[n].qa:AMAN[n].d));AP.list=list;AP.qi=0;AP.title=title;AP.done=false;AP.steps=[];AP.label='';fLoad(false);return}AP.list=list;AP.qi=0;AP.si=0;AP.left=null;AP.title=title;AP.done=false;AP.steps=list.length?stepsFor(list[0],acfg()):[];AP.playing=false}
-function apPlay(){if(!AP.list.length)return;if(AP.engine==='file'){const a=fEnsure();if(AP.done){AP.qi=0;fLoad(true)}else{if(!a.src)fLoad(false);a.play().catch(()=>{})}return}if(AP.done){AP.qi=0;AP.si=0;AP.done=false;AP.steps=stepsFor(AP.list[0],acfg())}AP.playing=true;keepAlive(true);setTimeout(apRun,60);apUI()}
+function apLoad(list,title){apStopSpeech();if(AEL){AEL.pause()}AP.engine=useFiles(acfg())?'file':'tts';if(AP.engine==='file'){AP.fmode=acfg().mode;AP.fqa=!!acfg().qa;AP.part='main';list=list.filter(n=>AMAN[n]&&(AP.fmode==='qa'?AMAN[n].qa:AMAN[n].d));AP.list=list;AP.qi=0;AP.title=title;AP.done=false;AP.steps=[];AP.label='';fLoad(false);return}AP.list=list;AP.qi=0;AP.si=0;AP.left=null;AP.title=title;AP.done=false;AP.steps=list.length?stepsFor(list[0],acfg()):[];AP.playing=false}
+function apPlay(){if(!AP.list.length)return;if(AP.engine==='file'){const a=fEnsure();if(AP.done){AP.qi=0;AP.part='main';fLoad(true)}else{if(!a.src)fLoad(false);a.play().catch(()=>{})}return}if(AP.done){AP.qi=0;AP.si=0;AP.done=false;AP.steps=stepsFor(AP.list[0],acfg())}AP.playing=true;keepAlive(true);setTimeout(apRun,60);apUI()}
 function apPause(){if(AP.engine==='file'){if(AEL)AEL.pause();return}AP.playing=false;apStopSpeech();keepAlive(false);apUI()}
-function apJump(d){if(AP.engine==='file'){const was=AP.playing;if(d<0&&AEL&&AEL.currentTime>5){AEL.currentTime=0}else{AP.qi=Math.max(0,Math.min(AP.list.length-1,AP.qi+d));fLoad(was)}return}const was=AP.playing;apStopSpeech();if(d<0&&AP.si>2){AP.si=0}else{AP.qi=Math.max(0,Math.min(AP.list.length-1,AP.qi+d));AP.si=0;AP.steps=stepsFor(AP.list[AP.qi],acfg())}AP.left=null;AP.done=false;if(was)setTimeout(apRun,60);apUI()}
+function apJump(d){if(AP.engine==='file'){const was=AP.playing;if(d<0&&AEL&&AEL.currentTime>5){AEL.currentTime=0}else{AP.part='main';AP.qi=Math.max(0,Math.min(AP.list.length-1,AP.qi+d));fLoad(was)}return}const was=AP.playing;apStopSpeech();if(d<0&&AP.si>2){AP.si=0}else{AP.qi=Math.max(0,Math.min(AP.list.length-1,AP.qi+d));AP.si=0;AP.steps=stepsFor(AP.list[AP.qi],acfg())}AP.left=null;AP.done=false;if(was)setTimeout(apRun,60);apUI()}
 function apReplay(){if(AP.engine==='file'){if(AEL)AEL.currentTime=Math.max(0,AEL.currentTime-10);return}const was=AP.playing;apStopSpeech();let i=AP.si-1;while(i>0&&AP.steps[i].t!=='say')i--;AP.si=Math.max(0,i);AP.left=null;if(was)setTimeout(apRun,60);apUI()}
 function apSkipPause(){if(AP.engine==='file'){const m=fMeta();if(m&&AEL&&AEL.currentTime<m.r-0.8)AEL.currentTime=m.r-0.8;return}if(AP.steps[AP.si]&&AP.steps[AP.si].t==='pause'){clearInterval(AP.iv);AP.iv=null;AP.left=null;AP.si++;AP.tok++;apRun()}}
 function apRun(){
@@ -624,11 +624,11 @@ function apUI(){
   g('ap-num').textContent=n?'№'+n:'';g('ap-title').textContent=n?QN(n).t:'';
   if(AP.engine==='file'){
     const m=fMeta(),tt=AEL?AEL.currentTime:0;let part='Готово к запуску';
-    if(AP.done)part='Подборка закончилась';else if(m&&AEL&&AEL.src&&AP.fmode==='qa')part='Вопросы экзаменатора';else if(m&&AEL&&AEL.src){if(tt<m.t)part='Название';else if(tt<m.r-0.8)part=`Твой ответ вслух: ${Math.max(0,Math.ceil(fPauseEnd(m)-tt))} с`;else part='Эталон'}
+    if(AP.done)part='Подборка закончилась';else if(m&&AEL&&AEL.src&&AP.fmode==='qa')part='Вопросы экзаменатора';else if(m&&AEL&&AEL.src&&AP.part==='qa')part='Что не забыть';else if(m&&AEL&&AEL.src){if(tt<m.t)part='Название';else if(tt<m.r-0.8)part=`Твой ответ вслух: ${Math.max(0,Math.ceil(fPauseEnd(m)-tt))} с`;else part='Эталон'}
     g('ap-part').textContent=part;g('ap-count').textContent=AP.list.length?`${AP.qi+1} из ${AP.list.length}`:'';
     g('ap-play').textContent=AP.playing?'Пауза':(AP.done?'Сначала':'Слушать');
     g('ap-bar').style.width=AP.list.length?((AP.qi+(m&&AEL&&AEL.duration?tt/AEL.duration:0))/AP.list.length*100)+'%':'0';
-    g('ap-skip').hidden=!(m&&AP.fmode==='exam'&&tt>=m.t&&tt<m.r-0.8);g('ap-rep').textContent='Назад 10 с';return;
+    g('ap-skip').hidden=!(m&&AP.fmode==='exam'&&AP.part!=='qa'&&tt>=m.t&&tt<m.r-0.8);g('ap-rep').textContent='Назад 10 с';return;
   }
   g('ap-rep').textContent='Повторить фразу';
   const st=AP.steps[AP.si];
@@ -671,7 +671,7 @@ function viewAudio(app){
   <span class="hint">${c.mode==='exam'?'Звучит название вопроса, сигнал, пауза на твой ответ вслух, второй сигнал и эталон. Самый полезный режим: это активное воспроизведение без рук.':c.mode==='listen'?'Подряд звучат источник, костяк, финал и дополнения. Подходит для первого знакомства с блоком и для лёгкого повторения.':'Звучат вопросы из «Что не забыть», после каждого сигнал и короткая пауза на ответ, затем правильный ответ.'}</span></div>
   ${c.mode==='exam'?(useFiles(c)?`<div class="opt"><label>Пауза на ответ</label>${seg('fpause',[[30,'30 с'],[45,'45 с'],[60,'1 мин']])}<span class="hint">С нейросетевым голосом пауза до 1 минуты. Если не успеваешь, нажми паузу и продолжи, когда закончишь.</span></div>`:`<div class="opt"><label>Пауза на ответ</label>${seg('pause',[[30,'30 с'],[60,'1 мин'],[90,'1,5 мин'],[120,'2 мин']])}</div>`):''}
   ${c.mode==='qa'&&!useFiles(c)?`<div class="opt"><label>Пауза на ответ</label>${seg('qp',[[5,'5 с'],[8,'8 с'],[12,'12 с'],[20,'20 с']])}</div>`:''}
-  ${c.mode==='listen'?`<div class="opt"><label>Читать «Что не забыть»</label>${seg('qa',[[false,'Нет'],[true,'Да']])}</div>`:''}
+  ${c.mode==='listen'?(useFiles(c)&&!hasQA()?`<div class="opt"><span class="hint">«Что не забыть» нейросетевым голосом пока не озвучено. Чтобы слушать эти вопросы, переключи голос на «Голос устройства».</span></div>`:`<div class="opt"><label>Читать «Что не забыть»</label>${seg('qa',[[false,'Нет'],[true,'Да']])}</div>`):''}
   <div class="opt"><label>Скорость речи</label>${seg('rate',[[0.85,'0,85'],[1,'1'],[1.15,'1,15'],[1.3,'1,3'],[1.5,'1,5']])}</div>
   ${!useFiles(c)&&voices.length?`<div class="opt"><label for="av">Голос</label><div class="row"><select id="av" style="flex:1;min-width:12rem">${voices.map(v=>`<option value="${h(v.voiceURI)}" ${pickVoice()&&pickVoice().voiceURI===v.voiceURI?'selected':''}>${h(v.name)}${v.localService===false?' (онлайн)':''}</option>`).join('')}</select><button class="btn small" id="atest">Проверить голос</button></div><span class="hint">Лучше выбирать встроенные голоса (например, Milena или Yuri на Mac). Онлайн-голоса иногда сбиваются на английское чтение после паузы.</span></div>`:''}
   <div class="row"><button class="btn primary" id="aload">Собрать подборку и включить</button></div></div>

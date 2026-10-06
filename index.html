@@ -533,7 +533,7 @@ function stepsFor(n,c){
     say(q.k,'Костяк ответа');
     say('Финал. '+q.f,'Финал');
     if(q.u&&q.u.length){say('Дополнение из устной части.','Дополнение');q.u.forEach(x=>say(x,'Дополнение'))}
-    if(c.qa&&q.qa.length){say('Что не забыть.','Что не забыть');q.qa.forEach(p=>{say(p.q,'Что не забыть');say(p.a,'Что не забыть')})}
+    if(c.qa&&(q.qa.length||q.ri)){say('Что не забыть.','Что не забыть');if(q.ri)say(q.ri,'Что не забыть');q.qa.forEach(p=>{say(p.q,'Что не забыть');say(p.a,'Что не забыть')})}
   }
   S.push({t:'pause',s:2,l:'Следующий вопрос'});
   return S;
@@ -586,7 +586,8 @@ function fLoad(play){const a=fEnsure();a.src=fileUrl(AP.list[AP.qi]);a.playbackR
 function fMeta(){return AMAN&&AMAN[AP.list[AP.qi]]}
 function fPauseEnd(m){return m.t+0.3+Math.min(60,acfg().fpause||60)}
 function fTick(){
-  if(AP.engine!=='file')return;const m=fMeta();if(!m)return;if(AP.fmode==='qa'||AP.part==='qa'){apUI();return}const a=AEL,tt=a.currentTime,c=acfg();
+  if(AP.engine!=='file')return;const m=fMeta();if(!m)return;if(AP.fmode==='listen'&&AP.part==='qa'&&m.qp){const tt=AEL.currentTime;for(const [s,e] of m.qp){if(tt>=s-0.05&&tt<e-0.05){AEL.currentTime=e;break}}}
+  if(AP.fmode==='qa'||AP.part==='qa'){apUI();return}const a=AEL,tt=a.currentTime,c=acfg();
   if(AP.fmode==='listen'){if(tt>=m.t&&tt<m.r-0.1)a.currentTime=m.r}
   else if(tt>=fPauseEnd(m)&&tt<m.r-0.8)a.currentTime=m.r-0.8;
   apUI();
@@ -671,7 +672,7 @@ function viewAudio(app){
   <span class="hint">${c.mode==='exam'?'Звучит название вопроса, сигнал, пауза на твой ответ вслух, второй сигнал и эталон. Самый полезный режим: это активное воспроизведение без рук.':c.mode==='listen'?'Подряд звучат источник, костяк, финал и дополнения. Подходит для первого знакомства с блоком и для лёгкого повторения.':'Звучат вопросы из «Что не забыть», после каждого сигнал и короткая пауза на ответ, затем правильный ответ.'}</span></div>
   ${c.mode==='exam'?(useFiles(c)?`<div class="opt"><label>Пауза на ответ</label>${seg('fpause',[[30,'30 с'],[45,'45 с'],[60,'1 мин']])}<span class="hint">С нейросетевым голосом пауза до 1 минуты. Если не успеваешь, нажми паузу и продолжи, когда закончишь.</span></div>`:`<div class="opt"><label>Пауза на ответ</label>${seg('pause',[[30,'30 с'],[60,'1 мин'],[90,'1,5 мин'],[120,'2 мин']])}</div>`):''}
   ${c.mode==='qa'&&!useFiles(c)?`<div class="opt"><label>Пауза на ответ</label>${seg('qp',[[5,'5 с'],[8,'8 с'],[12,'12 с'],[20,'20 с']])}</div>`:''}
-  ${c.mode==='listen'?(useFiles(c)&&!hasQA()?`<div class="opt"><span class="hint">«Что не забыть» нейросетевым голосом пока не озвучено. Чтобы слушать эти вопросы, переключи голос на «Голос устройства».</span></div>`:`<div class="opt"><label>Читать «Что не забыть»</label>${seg('qa',[[false,'Нет'],[true,'Да']])}</div>`):''}
+  ${c.mode==='listen'?(useFiles(c)&&!hasQA()?`<div class="opt"><span class="hint">«Что не забыть» нейросетевым голосом пока не озвучено. Чтобы слушать эти вопросы, переключи голос на «Голос устройства».</span></div>`:`<div class="opt"><label>Читать «Что не забыть»</label>${seg('qa',[[false,'Нет'],[true,'Да']])}<span class="hint">«Да»: после эталона подряд звучат все вопросы и ответы из «Что не забыть», без пауз и сигналов. Весь материал вопроса целиком.</span></div>`):''}
   <div class="opt"><label>Скорость речи</label>${seg('rate',[[0.85,'0,85'],[1,'1'],[1.15,'1,15'],[1.3,'1,3'],[1.5,'1,5']])}</div>
   ${!useFiles(c)&&voices.length?`<div class="opt"><label for="av">Голос</label><div class="row"><select id="av" style="flex:1;min-width:12rem">${voices.map(v=>`<option value="${h(v.voiceURI)}" ${pickVoice()&&pickVoice().voiceURI===v.voiceURI?'selected':''}>${h(v.name)}${v.localService===false?' (онлайн)':''}</option>`).join('')}</select><button class="btn small" id="atest">Проверить голос</button></div><span class="hint">Лучше выбирать встроенные голоса (например, Milena или Yuri на Mac). Онлайн-голоса иногда сбиваются на английское чтение после паузы.</span></div>`:''}
   <div class="row"><button class="btn primary" id="aload">Собрать подборку и включить</button></div></div>

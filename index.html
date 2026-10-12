@@ -156,6 +156,8 @@ h3{font-size:1.1rem}
 .guide li{margin:.35rem 0}
 .guide h3{margin-top:.2rem}
 .obadge{display:inline-block;font-family:var(--sans);font-size:.75rem;font-weight:700;color:var(--accent);background:var(--accent-soft);border-radius:4px;padding:.05rem .4rem;margin-left:.3rem;white-space:nowrap;vertical-align:.1rem}
+.cell.freq{outline:2px solid #E0457B;outline-offset:-2px}
+.obadge.freqb{color:#B0245A;background:#FBE3EC}
 .cell.oral::before{content:"";position:absolute;top:0;right:0;border-style:solid;border-width:0 7px 7px 0;border-color:transparent var(--accent) transparent transparent;border-top-right-radius:3px}
 .mat ul.add{margin:.2rem 0 0;padding-left:1.2rem;max-width:72ch}
 .mat ul.add li{font-family:var(--serif);line-height:1.55;margin:.35rem 0}
@@ -221,11 +223,15 @@ const EXTRA_T = ALL.filter(n=>QN(n).x);
 if(EXTRA_T.length) BLOCKS.push([EXTRA_T[0],EXTRA_T[EXTRA_T.length-1],'Дополнительные темы из новых материалов',EXTRA_T]);
 const blockOf = n => (BLOCKS.find(b=>b[3].includes(n))||[0,0,''])[2];
 const R = (a,b,...x) => range(a,b).concat(x);
-const LEARN = {1:R(1,5,195),2:R(6,10),3:R(11,15),4:R(16,20),5:R(21,24),6:R(25,28),8:R(29,34),9:R(35,40),10:R(41,46),11:R(47,51),12:R(52,56),13:R(57,61),15:R(62,67),16:R(68,74),17:R(75,80),18:R(81,86),19:R(87,92),20:R(93,98),22:R(99,103),23:R(104,108),24:R(109,113),25:R(114,118),26:R(119,123),27:R(124,128),29:R(129,134),30:R(135,140),31:R(141,146),32:R(147,152),33:R(153,158),34:R(159,163),36:R(164,168,197),37:R(169,173,194),38:R(174,178,196),39:R(179,183),40:R(184,188),41:R(189,193)};
-const FAST = {50:R(1,32,195),51:R(33,65),52:R(66,98),53:R(99,131),54:R(132,163),55:R(164,193,194,196,197)};
-FAST[55]=FAST[55].concat(EXTRA_T);
 const ORAL = ALL.filter(n=>QN(n).o&&QN(n).o.length);
 const ORALN = new Set(Q.flatMap(q=>q.o||[])).size;
+/* устные вопросы, которые попадаются чаще всего (выделены цветом в списке вопросов) */
+const FREQ = new Set([1,2,3,4,7,8,9,11,14,16,18,20,22,23,24,28,29,31,34,36,37,38,39,40,41,42,43,44,45,50,51,52,57,59,62,63,66,67]);
+const isFreq = n => (QN(n).o||[]).some(o=>FREQ.has(o));
+const FREQC = ALL.filter(isFreq);
+const oKey = n => Math.min(...(QN(n).o||[999]));
+const ORAL_ORDER = ORAL.slice().sort((a,b)=>(isFreq(b)-isFreq(a))||(oKey(a)-oKey(b))||(a-b));
+const OTHERS = ALL.filter(n=>!ORAL.includes(n));
 function idsLabel(ids){const s=[...ids].sort((a,b)=>a-b);const out=[];let a=s[0],p=s[0];for(const x of s.slice(1).concat([null])){if(x===p+1){p=x;continue}out.push(a===p?''+a:a+'-'+p);a=p=x}return out.join(', ')}
 const INT = [0,1,2,4,7,14];
 const h = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -269,7 +275,28 @@ function rate(n,r,first){
   state.cards[n]=c; markDay(); save();
 }
 function dayNo(){return diffDays(state.start,today())+1}
-function learnedByDay(d){let out=[];for(const k in LEARN){if(+k<=d)out=out.concat(LEARN[k])}return out}
+function examDay(){return state.exam||addDays(state.start,60)}
+function PL(){const D=Math.max(1,diffDays(state.start,examDay()));let mix=0,reh=0;if(D>=20){mix=Math.round(D*.12);reh=Math.round(D*.18)}else if(D>=8){mix=1;reh=2}else if(D>=3){reh=1}return {D,L:D-mix-reh,mix,reh}}
+function isRevDay(d,P){return P.L>=10&&d%7===0&&d<P.L}
+/* доля новых: пока есть неизученные устные, 90% устные и 10% остальные; потом 50% остальные и 50% повторение устных */
+function splitDay(uo,ux,C){if(uo>0){const xq=C>=3?Math.max(1,Math.round(C*.1)):0;const o=Math.min(uo,C-xq),spare=C-xq-o;return {o,x:Math.min(ux,xq+Math.ceil(spare/2)),r:0}}const x=Math.min(ux,Math.ceil(C/2));return {o:0,x,r:x?Math.ceil(C/2):0}}
+function fits(uo,ux,days,C){for(let i=0;i<days;i++){const s=splitDay(uo,ux,C);uo-=s.o;ux-=s.x;if(!uo&&!ux)return true}return !uo&&!ux}
+function learnDaysLeft(d,P){let k=0;for(let i=Math.max(d,1);i<=P.L;i++)if(!isRevDay(i,P))k++;return k}
+function dayAlloc(){
+  const d=dayNo(),P=PL(),key=today()+'|'+state.start+'|'+examDay();
+  if(state.pd&&state.pd.key===key)return state.pd;
+  const r={key,oral:[],other:[],orev:0,C:0};
+  const uo=ORAL_ORDER.filter(n=>!learned(n)),ux=OTHERS.filter(n=>!learned(n));
+  if(d>=1&&d<=P.L&&!isRevDay(d,P)&&(uo.length||ux.length)){
+    const days=learnDaysLeft(d,P);let C=1;while(C<300&&!fits(uo.length,ux.length,days,C))C++;
+    const s=splitDay(uo.length,ux.length,C);r.C=C;r.oral=uo.slice(0,s.o);r.other=ux.slice(0,s.x);r.orev=Math.min(s.r,ORAL.filter(learned).length);
+  }
+  state.pd=r;save();return r;
+}
+function oralRepList(k){const rank={r:0,y:1,g:2};const last=n=>{const h2=(card(n)||{}).h||[];return h2.length?h2[h2.length-1][0]:''};return ORAL.filter(learned).sort((a,b)=>(rank[status(a)]-rank[status(b)])||(isFreq(b)-isFreq(a))||(last(a)<last(b)?-1:last(a)>last(b)?1:0)).slice(0,k)}
+function fastChunks(P){const n=Math.max(0,P.reh-5);if(!n)return [];const all=ORAL_ORDER.concat(OTHERS),per=Math.ceil(all.length/n);return Array.from({length:n},(_,i)=>all.slice(i*per,(i+1)*per)).filter(x=>x.length)}
+function fastFor(d,P){const r=d-P.L-P.mix;const ch=fastChunks(P);return r>=1&&r<=ch.length?ch[r-1]:null}
+function todayIds(){const d=dayNo(),P=PL(),a=dayAlloc();return [...a.oral,...a.other,...(fastFor(d,P)||[])]}
 
 /* ---------- timer ---------- */
 let T=null;
@@ -293,7 +320,7 @@ function bindTimer(auto){
 
 /* ---------- pieces ---------- */
 function pips(n){const c=card(n);const b=c&&c.l?c.b:0;return `<div class="pips" title="Коробка ${b||'не начата'} из 5">${[1,2,3,4,5].map(i=>`<span class="pip ${i<=b?'on':''}"></span>`).join('')}</div>`}
-function head(n){const q=QN(n);return `<header class="qh"><div class="qn">№${n}</div><div><div class="qb">${h(blockOf(n))}${q.o&&q.o.length?` <span class="obadge">устный вопрос №${q.o.join(', №')}</span>`:''}</div><h2>${h(q.t)}</h2></div>${pips(n)}</header>`}
+function head(n){const q=QN(n);return `<header class="qh"><div class="qn">№${n}</div><div><div class="qb">${h(blockOf(n))}${q.o&&q.o.length?` <span class="obadge">устный вопрос №${q.o.join(', №')}</span>`:''}${isFreq(n)?' <span class="obadge freqb">часто на экзамене</span>':''}</div><h2>${h(q.t)}</h2></div>${pips(n)}</header>`}
 function material(n,opt={}){
   const q=QN(n);
   return `<section class="mat">
@@ -330,55 +357,62 @@ function render(){
 
 /* ---------- today ---------- */
 function planFor(d){
-  const due=dueList().length, red=ALL.filter(n=>status(n)==='r').length;
+  const due=dueList().length, red=ALL.filter(n=>status(n)==='r').length, P2=PL();
   const P=[];
   const dueItem={t:'Повторение по коробкам',d:due?`${qw(due)} к повторению сегодня. Отвечай вслух, потом сверяйся.`:'На сегодня повторять нечего.',a:due?['Начать',()=>startReview(dueList(),'Повторение по коробкам',120)]:null};
+  const oL=ORAL.filter(learned).length, fL=FREQC.filter(learned).length;
+  const oralLine=`Устная часть: изучено ${oL} из ${ORAL.length} карточек, из частых ${fL} из ${FREQC.length}.`;
+  const left=ALL.filter(n=>!learned(n));
+  const catchUp=()=>{const l=ORAL_ORDER.concat(OTHERS).filter(n=>!learned(n));if(l.length)P.push({t:'Доучить неизученное',d:`${qw(l.length)} ещё не изучено, сначала устные. Бери по 5 в день поверх плана.`,a:['Изучать 5',()=>startLearn(l.slice(0,5),'Доучить')]})};
+  const vBase=Math.floor(P2.L/7);
   if(d<1) return {stage:'Курс ещё не начался',sub:`Старт ${fmtD(state.start)}`,P:[]};
-  if(d<=42){
-    const stage='Этап 1: фундамент', week=Math.ceil(d/7);
-    if(LEARN[d]){
-      const ids=LEARN[d], lab=idsLabel(ids), bl=[...new Set(ids.map(blockOf))].join('; '); const left=ids.filter(n=>!learned(n));
-      P.push(dueItem);
-      P.push({t:`Новые вопросы ${lab}`,d:`${bl}. Цикл: предтест, чтение, якоря, ответ вслух, сверка.`+(left.length?'':' Уже изучены.'),a:left.length?['Изучать',()=>startLearn(left,`Новые вопросы ${lab}`)]:['Повторить',()=>startReview(ids,`Вопросы ${lab}`,120)]});
-      const behind=learnedByDay(d-1).filter(n=>!learned(n));
-      const ex=EXTRA_T.filter(n=>!learned(n));
-      if(ex.length&&d>=2) P.push({t:'Новые темы из свежих материалов',d:`${qw(ex.length)} ещё не изучено. Бери по 2 в день поверх плана.`,a:['Изучать 2',()=>startLearn(ex.slice(0,2),'Новые темы')]});
-      if(behind.length) P.push({t:'Догнать пропущенное',d:`Из прошлых дней не изучено: ${qw(behind.length)}. Бери не больше 3 в день поверх плана.`,a:['Изучать 3',()=>startLearn(behind.slice(0,3),'Пропущенные вопросы')]});
-      return {stage,sub:`Неделя ${week}. ${d===16?'Самый плотный день курса.':''}`,P};
+  if(d<=P2.L){
+    const stage='Этап 1: изучение', week=Math.ceil(d/7);
+    if(!isRevDay(d,P2)){
+      const A=dayAlloc(); P.push(dueItem);
+      const lo=A.oral.filter(n=>!learned(n)), lx=A.other.filter(n=>!learned(n));
+      if(A.oral.length){const fq=A.oral.filter(isFreq).length;P.push({t:`Устные вопросы: ${qw(A.oral.length)}`,d:(fq?`Из них частых на экзамене: ${fq}. `:'')+'Главная работа дня. Цикл: предтест, чтение, якоря, ответ вслух, сверка.'+(lo.length?'':' Уже изучены.'),a:lo.length?['Изучать',()=>startLearn(lo,'Устные вопросы')]:['Повторить',()=>startReview(A.oral,'Устные вопросы',180)]})}
+      if(A.orev){P.push({t:`Устные вопросы: повторение (${A.orev})`,d:'Половина времени дня. Сначала слабые и частые: отвечай вслух по 3 минуты, как на экзамене.',a:['Начать',()=>startReview(oralRepList(A.orev),'Повторение устных',180)]})}
+      if(A.other.length){P.push({t:`Остальные вопросы: ${qw(A.other.length)}`,d:(A.oral.length?'Небольшая часть дня, после устных.':'Вторая половина дня.')+(lx.length?'':' Уже изучены.'),a:lx.length?['Изучать',()=>startLearn(lx,'Остальные вопросы')]:['Повторить',()=>startReview(A.other,'Остальные вопросы',120)]})}
+      if(!A.oral.length&&!A.other.length&&!left.length) P.push({t:'Все вопросы изучены',d:'Новых нет. Повторяй по коробкам и прогоняй устные.',a:['Устные вразнобой',()=>startReview(shuffle(ORAL).slice(0,10),'Устные вопросы',180)]});
+      const sub=ORAL.every(learned)?`${oralLine} Устные изучены: теперь половина времени на остальные вопросы, половина на повторение устных.`:`${oralLine} Пока есть неизученные устные, на них 90% новых, на остальные 10%.`;
+      return {stage,sub:`Неделя ${week}. ${sub}`,P};
     }
-    const wk=learnedByDay(d-1).filter(n=>!learnedByDay(d-7).includes(n));
+    const wk=ALL.filter(n=>learned(n)&&card(n).l>addDays(today(),-7)&&card(n).l<today());
     P.push(dueItem);
-    P.push({t:'Экспресс-прогон недели',d:`${qw(wk.length)}, 30-40 секунд на каждый: первая фраза и якоря.`,a:['Начать',()=>startReview(wk,'Прогон недели',40)]});
-    P.push({t:'Мини-экзамен',d:'5 случайных вопросов из всех пройденных, по 3 минуты. Запиши ответы на диктофон и прослушай один.',a:['Тянуть билет',()=>startExam({count:5,pool:'done',prep:0})]});
-    P.push(quizItem(Math.ceil(d/7)));
-    P.push({t:'Интеллект-карта',d:'На листе A4 нарисуй карту блоков недели: понятия, статьи, связи. Без тренажёра, от руки.'});
+    P.push({t:'Экспресс-прогон недели',d:`${qw(wk.length)}, 30-40 секунд на каждый: первая фраза и якоря.`,a:wk.length?['Начать',()=>startReview(wk,'Прогон недели',40)]:null});
+    P.push({t:'Мини-экзамен по устным',d:'3 случайных устных вопроса из изученных, по 3 минуты. Запиши ответы на диктофон и прослушай один.',a:['Тянуть билет',()=>startExam({count:3,pool:'oraldone',prep:0})]});
+    P.push(quizItem(week));
+    P.push({t:'Интеллект-карта',d:'На листе A4 нарисуй карту тем недели: понятия, статьи, связи. Без тренажёра, от руки.'});
     P.push({t:'Лист цифр',d:'Перенеси сроки, возрасты, ставки и номера статей этой недели.',a:['Открыть',()=>go('nums')]});
-    return {stage,sub:`Неделя ${week}, день повторения. Нового материала нет.`,P};
+    return {stage,sub:`Неделя ${week}, день повторения. Нового материала нет. ${oralLine}`,P};
   }
-  if(d<=49){
-    const stage='Этап 2: перемешивание';
+  if(d<=P2.L+P2.mix){
+    const stage='Этап 2: перемешивание', m=d-P2.L;
     P.push(dueItem);
-    if(d===45||d===48) P.push({t:'Пробный экзамен',d:'3 случайных вопроса, 15 минут на тезисы, ответ вслух, затем вопросы экзаменатора. Лучше с живым человеком в роли экзаменатора.',a:['Начать',()=>startExam({count:3,pool:'all',prep:15})]});
-    else if(d===49) P.push({t:'Сводная карта',d:'Сведи все интеллект-карты на один разворот и дорисуй связи между блоками.'});
-    else P.push({t:'Лотерея',d:`12 случайных вопросов из всех ${Q.length}, по 3 минуты на ответ.`,a:['Тянуть',()=>startReview(shuffle(ALL).slice(0,12),'Лотерея',180)]});
-    P.push(quizItem(d-36));
+    if(P2.mix>=5&&(m===2||m===5)) P.push({t:'Пробный экзамен',d:'3 случайных устных вопроса, 15 минут на тезисы, ответ вслух, затем вопросы экзаменатора. Лучше с живым человеком в роли экзаменатора.',a:['Начать',()=>startExam({count:3,pool:'oral',prep:15})]});
+    else if(P2.mix>=3&&m===P2.mix) P.push({t:'Сводная карта',d:'Сведи все интеллект-карты на один разворот и дорисуй связи между темами.'});
+    else P.push({t:'Лотерея',d:'12 случайных вопросов: 8 устных (частые чаще) и 4 остальных, по 3 минуты на ответ.',a:['Тянуть',()=>startReview(shuffle(shuffle(FREQC).slice(0,5).concat(shuffle(ORAL.filter(n=>!isFreq(n))).slice(0,3))).concat(shuffle(OTHERS).slice(0,4)),'Лотерея',180)]});
+    P.push(quizItem(vBase+m));
     if(quizErrs().length) P.push(quizErrItem());
+    catchUp();
     P.push({t:'Красный список',d:red?`${qw(red)} с отметкой «не знаю».`:'Красных вопросов нет.',a:red?['Начать',()=>startReview(ALL.filter(n=>status(n)==='r'),'Красный список',180)]:null});
     P.push({t:'Лист цифр',d:'10 минут: прочитай, закрой, воспроизведи по памяти.',a:['Открыть',()=>go('nums')]});
     return {stage,sub:'Вопросы вразнобой, чтобы вспоминались без опоры на соседние.',P};
   }
-  if(d<=60){
-    const stage='Этап 3: репетиция';
-    if(FAST[d]){const ids=FAST[d],lab=idsLabel(ids);P.push({t:`Быстрый прогон ${lab}`,d:'Около 2 минут на вопрос: первая фраза, 3-4 предложения костяка, финал.',a:['Начать',()=>startReview(ids,`Прогон ${lab}`,120)]});P.push(dueItem)}
-    else if(d===56) P.push({t:'Генеральная репетиция',d:'Два билета подряд в экзаменационных условиях. После первого сразу тяни второй.',a:['Билет',()=>startExam({count:3,pool:'all',prep:15})]});
-    else if(d===57) P.push({t:'Красный список целиком',d:red?qw(red):'Красных нет, пройди жёлтые.',a:['Начать',()=>{const l=ALL.filter(n=>status(n)==='r');startReview(l.length?l:ALL.filter(n=>status(n)==='y'),'Красный список',180)}]});
-    else if(d===58) P.push({t:'Пробный экзамен и разбор',d:'Один билет, потом разбери каждую ошибку по эталону.',a:['Начать',()=>startExam({count:3,pool:'all',prep:15})]});
-    else if(d===59){P.push({t:'Лёгкий день, 60 минут',d:'Лист цифр, интеллект-карты и 20 первых фраз вразнобой.',a:['20 вопросов',()=>startReview(shuffle(ALL).slice(0,20),'Первые фразы',40)]});P.push({t:'Лист цифр',d:'',a:['Открыть',()=>go('nums')]})}
-    else {P.push({t:'Последний день, 30-45 минут',d:'Только лист цифр и 10 первых фраз. Потом отдых и нормальный сон.',a:['10 вопросов',()=>startReview(shuffle(ALL).slice(0,10),'Первые фразы',40)]});P.push({t:'Лист цифр',d:'',a:['Открыть',()=>go('nums')]})}
-    if(d<=58) P.push(quizItem(d-36)); else if(quizErrs().length) P.push(quizErrItem());
+  if(d<=P2.D){
+    const stage='Этап 3: репетиция', r=d-P2.L-P2.mix, tail=['gen','red','mock','light','last'].slice(-Math.min(5,P2.reh)), ti=r-(P2.reh-tail.length)-1, kind=ti>=0?tail[ti]:'fast';
+    const fast=fastFor(d,P2);
+    if(fast){const lab=idsLabel(fast);P.push({t:`Быстрый прогон ${lab}`,d:'Около 2 минут на вопрос: первая фраза, 3-4 предложения костяка, финал. Устные идут первыми.',a:['Начать',()=>startReview(fast,`Прогон ${lab}`,120)]});P.push(dueItem)}
+    else if(kind==='gen') P.push({t:'Генеральная репетиция',d:'Два билета подряд в экзаменационных условиях. После первого сразу тяни второй.',a:['Билет',()=>startExam({count:3,pool:'oral',prep:15})]});
+    else if(kind==='red') P.push({t:'Красный список целиком',d:red?qw(red):'Красных нет, пройди жёлтые.',a:['Начать',()=>{const l=ALL.filter(n=>status(n)==='r');startReview(l.length?l:ALL.filter(n=>status(n)==='y'),'Красный список',180)}]});
+    else if(kind==='mock') P.push({t:'Пробный экзамен и разбор',d:'Один билет из устных вопросов, потом разбери каждую ошибку по эталону.',a:['Начать',()=>startExam({count:3,pool:'oral',prep:15})]});
+    else if(kind==='light'){P.push({t:'Лёгкий день, 60 минут',d:'Лист цифр, интеллект-карты и 20 первых фраз устных вопросов вразнобой.',a:['20 вопросов',()=>startReview(shuffle(ORAL).slice(0,20),'Первые фразы',40)]});P.push({t:'Лист цифр',d:'',a:['Открыть',()=>go('nums')]})}
+    else {P.push({t:'Последний день, 30-45 минут',d:'Только лист цифр и 10 первых фраз частых устных вопросов. Потом отдых и нормальный сон.',a:['10 вопросов',()=>startReview(shuffle(FREQC).slice(0,10),'Первые фразы',40)]});P.push({t:'Лист цифр',d:'',a:['Открыть',()=>go('nums')]})}
+    if(kind!=='light'&&kind!=='last') {P.push(quizItem(vBase+P2.mix+r));catchUp()} else if(quizErrs().length) P.push(quizErrItem());
     return {stage,sub:'Полный прогон и репетиция в условиях экзамена.',P};
   }
-  return {stage:'Курс завершён',sub:'Если экзамен перенесли, сдвинь дату старта ниже или занимайся в свободном режиме.',P:[dueItem]};
+  return {stage:'Курс завершён',sub:'Если экзамен перенесли, поменяй дату экзамена в настройках ниже или занимайся в свободном режиме.',P:[dueItem]};
 }
 function viewToday(app){
   const d=dayNo(), p=planFor(d);
@@ -386,25 +420,27 @@ function viewToday(app){
   const studied=Object.keys(state.days).length;
   window._plan=p.P;
   app.innerHTML=`
-  <div class="day"><div class="day-n">${d<1?'0':Math.min(d,60)}</div><div class="day-meta"><h1>${d>=1&&d<=60?`День ${d} из 60. `:''}${h(p.stage)}</h1><p>${h(p.sub)}</p></div></div>
+  <div class="day"><div class="day-n">${d<1?'0':Math.min(d,PL().D)}</div><div class="day-meta"><h1>${d>=1&&d<=PL().D?`День ${d} из ${PL().D}. `:''}${h(p.stage)}</h1><p>${h(p.sub)}</p></div></div>
   <div class="panel"><div class="row" style="justify-content:space-between;align-items:baseline"><h3>План на сегодня</h3><button class="btn link" id="toguide">Как заниматься</button></div>${p.P.length?`<ol class="plan">${p.P.map((x,i)=>`<li><div><div class="t">${h(x.t)}</div>${x.d?`<div class="d">${h(x.d)}</div>`:''}</div>${x.a?`<button class="btn ${i===0||x.a[0]==='Изучать'?'primary':''}" data-plan="${i}">${h(x.a[0])}</button>`:'<span></span>'}</li>`).join('')}</ol>`:'<p class="muted">Пока нечего делать.</p>'}</div>
   <div class="panel"><h3>Картотека: ${Q.length} вопросов</h3>
   <div class="stats"><span><i class="dot" style="background:var(--g)"></i><b>${cnt.g}</b>знаю</span><span><i class="dot" style="background:var(--y)"></i><b>${cnt.y}</b>частично</span><span><i class="dot" style="background:var(--r)"></i><b>${cnt.r}</b>не знаю</span><span><i class="dot" style="background:var(--n)"></i><b>${cnt.n}</b>не изучено</span><span class="muted">Дней занятий: ${studied}</span></div>
-  <div class="file">${BLOCKS.map(([a,b,name,ids])=>`<div class="fb"><div class="fb-name">${h(name)}</div><div class="cells">${ids.map(n=>`<button class="cell s-${status(n)} ${isDue(n)?'due':''} ${ORAL.includes(n)?'oral':''}" data-q="${n}" title="№${n}. ${h(QN(n).t)}">${n}</button>`).join('')}</div></div>`).join('')}</div>
-  <p class="hint" style="margin-top:.8rem">Черта внизу клетки: вопрос пора повторить. Уголок сверху: вопрос из списка устной части. Нажми на клетку, чтобы открыть вопрос.</p></div>
+  <div class="file">${BLOCKS.map(([a,b,name,ids])=>`<div class="fb"><div class="fb-name">${h(name)}</div><div class="cells">${ids.map(n=>`<button class="cell s-${status(n)} ${isDue(n)?'due':''} ${ORAL.includes(n)?'oral':''} ${isFreq(n)?'freq':''}" data-q="${n}" title="№${n}. ${h(QN(n).t)}">${n}</button>`).join('')}</div></div>`).join('')}</div>
+  <p class="hint" style="margin-top:.8rem">Черта внизу клетки: вопрос пора повторить. Уголок сверху: вопрос из списка устной части. Розовая рамка: устный вопрос, который попадается чаще всего. Нажми на клетку, чтобы открыть вопрос.</p></div>
   <div class="panel"><h3>Настройки курса</h3>
-  <div class="opt"><label for="start">Дата первого дня курса</label><input type="date" id="start" value="${state.start}" style="max-width:14rem"><span class="hint">Экзамен ориентировочно ${fmtD(addDays(state.start,60))}. От даты старта считается день курса.</span></div>
+  <div class="opt"><label for="start">Дата первого дня курса</label><input type="date" id="start" value="${state.start}" style="max-width:14rem"><span class="hint">От даты старта считается день курса.</span></div>
+  <div class="opt"><label for="exd">Дата экзамена</label><input type="date" id="exd" value="${examDay()}" style="max-width:14rem"><span class="hint">Срок подготовки выбираешь сам: план пересчитывается под число дней. Сейчас ${PL().D} ${plural(PL().D,['день','дня','дней'])}: изучение ${PL().L}, перемешивание ${PL().mix}, репетиция ${PL().reh}. Новых вопросов на сегодня: ${(()=>{const a=dayAlloc();return a.oral.length+a.other.length})()}.</span></div>
   <div class="opt"><label>Резервная копия прогресса</label><span class="hint">Прогресс живёт в браузере, где открыт файл. Сохраняй копию раз в неделю, а чтобы перенести занятия на другое устройство или браузер, загрузи копию там.</span><div class="row"><button class="btn small" id="exp">Сохранить прогресс в файл</button><button class="btn small" id="imp">Загрузить прогресс из файла</button><input type="file" id="impf" accept=".json,application/json" hidden></div></div>
   <div class="row"><button class="btn small" id="reset">Сбросить весь прогресс</button></div></div>`;
   app.querySelectorAll('[data-plan]').forEach(b=>b.onclick=()=>window._plan[+b.dataset.plan].a[1]());
   app.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>openDetail(+b.dataset.q));
   document.getElementById('toguide').onclick=()=>go('guide');
-  document.getElementById('start').onchange=e=>{if(e.target.value){state.start=e.target.value;save();render()}};
+  document.getElementById('start').onchange=e=>{if(e.target.value){state.start=e.target.value;if(state.exam&&state.exam<=state.start)state.exam='';state.pd=null;save();render()}};
+  document.getElementById('exd').onchange=e=>{if(e.target.value&&e.target.value>state.start){state.exam=e.target.value;state.pd=null;save();render()}else{alert('Дата экзамена должна быть позже даты старта.');render()}};
   document.getElementById('exp').onclick=()=>{const b=new Blob([JSON.stringify(state)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='progress-realtor-'+today()+'.json';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)};
   const impf=document.getElementById('impf');
   document.getElementById('imp').onclick=()=>impf.click();
   impf.onchange=async()=>{const f=impf.files[0];if(!f)return;try{const s=JSON.parse(await f.text());if(!s||s.v!==1||!s.cards)throw 0;if(confirm('Заменить текущий прогресс данными из файла?')){state=s;save();render()}}catch(e){alert('Это не файл прогресса тренажёра. Выбери файл, сохранённый кнопкой «Сохранить прогресс в файл».')}impf.value=''};
-  document.getElementById('reset').onclick=()=>{if(confirm('Удалить все отметки, коробки, якоря и лист цифр? Это нельзя отменить.')){const s=state.start;state=fresh();state.start=s;save();render()}};
+  document.getElementById('reset').onclick=()=>{if(confirm('Удалить все отметки, коробки, якоря и лист цифр? Это нельзя отменить.')){const s=state.start,ex=state.exam;state=fresh();state.start=s;if(ex)state.exam=ex;save();render()}};
 }
 
 /* ---------- learn session ---------- */
@@ -456,6 +492,7 @@ function viewReview(app){
     ['Жёлтый список',`${qw(yel.length)} с отметкой «частично»`,yel,180],
     ['Лотерея из пройденных','12 случайных вопросов из изученных',shuffle(done).slice(0,12),180],
     ['Устные вопросы',`${ORALN} вопросов устной части (${ORAL.length} карточек), вразнобой`,shuffle(ORAL),180],
+    ['Частые устные',`${FREQ.size} устных вопросов, которые попадаются чаще всего (${FREQC.length} карточек)`,shuffle(FREQC),180],
     ['Лотерея из всех вопросов','12 случайных вопросов, в том числе неизученных',shuffle(ALL).slice(0,12),180],
   ];
   app.innerHTML=`<div class="panel"><h2>Повторение</h2><p class="hint">Система Лейтнера: 5 коробок. Коробка 1 повторяется каждый день, 2 через день, 3 раз в 4 дня, 4 раз в неделю, 5 раз в две недели. «Знаю» переносит вопрос в коробку выше, «не знаю» возвращает в первую.</p>
@@ -472,14 +509,15 @@ function viewExamSetup(app){
   const seg=(key,vals)=>`<div class="seg">${vals.map(([v,t])=>`<button data-k="${key}" data-v="${v}" aria-pressed="${examCfg[key]==v}">${t}</button>`).join('')}</div>`;
   app.innerHTML=`<div class="panel"><h2>Пробный экзамен</h2><p class="hint">Тянешь билет, готовишь тезисы, отвечаешь вслух по таймеру, затем экзаменатор задаёт вопросы из «Что не забыть». Если рядом есть человек, дай ему экран на этапе вопросов экзаменатора.</p>
   <div class="opt"><label>Вопросов в билете</label>${seg('count',[[1,'1'],[3,'3'],[5,'5']])}</div>
-  <div class="opt"><label>Из каких вопросов тянуть</label>${seg('pool',[['done',`Изученные (${done})`],['oral',`Устные (${ORALN})`],['all',`Все ${Q.length}`]])}</div>
+  <div class="opt"><label>Из каких вопросов тянуть</label>${seg('pool',[['done',`Изученные (${done})`],['oral',`Устные (${ORALN})`],['freq',`Частые устные (${FREQ.size})`],['all',`Все ${Q.length}`]])}</div>
   <div class="opt"><label>Время на подготовку</label>${seg('prep',[[0,'Без подготовки'],[10,'10 минут'],[15,'15 минут']])}</div>
   <div class="row"><button class="btn primary" id="eg">Тянуть билет</button></div></div>`;
   app.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{const k=b.dataset.k;examCfg[k]=k==='pool'?b.dataset.v:+b.dataset.v;render()});
   document.getElementById('eg').onclick=()=>startExam(examCfg);
 }
 function startExam(cfg){
-  let pool=cfg.pool==='all'?ALL:cfg.pool==='oral'?ORAL:ALL.filter(learned);
+  let pool=cfg.pool==='all'?ALL:cfg.pool==='oral'?ORAL:cfg.pool==='freq'?FREQC:cfg.pool==='oraldone'?ORAL.filter(learned):ALL.filter(learned);
+  if(cfg.pool==='oraldone'&&!pool.length)pool=ALL.filter(learned);
   if(pool.length<cfg.count){ if(!pool.length){alert('Пока нет изученных вопросов. Выбери «Все» или «Устные» или начни с плана дня.');return} }
   const ids=shuffle(pool).slice(0,cfg.count);
   session={ids,cfg,stage:cfg.prep?'prep':'answer',qi:0,fu:ids.map(n=>shuffle(QN(n).qa).slice(0,3)),res:{},render(app){
@@ -679,8 +717,9 @@ function apUI(){
 }
 function audioList(c){
   let ids=[],title='';
-  if(c.src==='today'){const d=dayNo();ids=[...new Set([...(LEARN[d]||FAST[d]||[]),...dueList()])];title='План на сегодня';if(!ids.length){ids=ORAL.slice();title='Устные вопросы (на сегодня плана нет)'}}
+  if(c.src==='today'){const d=dayNo();ids=[...new Set([...todayIds(),...dueList()])];title='План на сегодня';if(!ids.length){ids=ORAL.slice();title='Устные вопросы (на сегодня плана нет)'}}
   else if(c.src==='oral'){ids=ORAL.slice();title='Устные вопросы'}
+  else if(c.src==='freq'){ids=FREQC.slice();title='Частые устные'}
   else if(c.src==='red'){ids=ALL.filter(n=>status(n)==='r');title='Красный список'}
   else if(c.src==='due'){ids=dueList();title='Повторение по коробкам'}
   else if(c.src==='block'){const b=BLOCKS[c.block]||BLOCKS[0];ids=b[3].slice();title=b[2]}
@@ -701,7 +740,7 @@ function viewAudio(app){
   ${useFiles(c)?'':!ok?'<div class="panel"><p>Этот браузер не умеет озвучивать текст. Открой файл в Chrome, Safari или Edge.</p></div>':!voices.length?'<div class="panel"><p><b>Русский голос не найден.</b> Озвучка может пойти с акцентом или не пойти вовсе. На Android: Настройки, затем «Синтез речи», установить русский язык для движка Google. На Windows: Параметры, «Время и язык», «Речь», добавить русский голос. На iPhone русский голос обычно уже есть.</p></div>':''}
   ${AMAN?`<div class="panel"><h3>Голос</h3><div class="opt">${seg('eng',[['ai','Нейросетевой'],['tts','Голос устройства']])}<span class="hint">${c.eng!=='tts'?'Заранее записанный нейросетевой голос. Работает и с заблокированным экраном, а кнопки на наушниках, экране блокировки и в машине переключают вопросы. '+(hasQA()?'':'Режим «Вопросы экзаменатора» пока озвучивается голосом устройства.'):'Голос, встроенный в телефон или компьютер. Нужен включённый экран.'}</span></div></div>`:''}
   <div class="panel"><h3>Что слушать</h3>
-  <div class="opt">${seg('src',[['today','План на сегодня'],['oral','Устные вопросы'],['due','Повторение по коробкам'],['red','Красный список'],['block','Блок'],['range','Диапазон']])}</div>
+  <div class="opt">${seg('src',[['today','План на сегодня'],['oral','Устные вопросы'],['freq','Частые устные'],['due','Повторение по коробкам'],['red','Красный список'],['block','Блок'],['range','Диапазон']])}</div>
   ${c.src==='block'?`<div class="opt"><select id="ab">${BLOCKS.map((b,i)=>`<option value="${i}" ${i==c.block?'selected':''}>${h(b[2])}</option>`).join('')}</select></div>`:''}
   ${c.src==='range'?`<div class="opt"><div class="row"><input type="number" id="af" min="1" max="${Q.length}" value="${c.from}" style="width:6rem"><span>по</span><input type="number" id="at" min="1" max="${Q.length}" value="${c.to}" style="width:6rem"></div></div>`:''}
   <div class="opt"><label>Порядок</label>${seg('order',[['num','По номерам'],['rnd','Вразнобой']])}</div>
@@ -833,7 +872,7 @@ function viewGuide(app){
   <div class="row"><button class="btn primary" id="gtoday">Открыть план на сегодня</button></div></div>
 
   <div class="panel"><h3>В каком порядке</h3>
-  <p>Сначала всегда «Повторение по коробкам»: это старые вопросы, которые пора освежить. Потом «Новые вопросы», их 5-6 в день по плану. Если на повторение ушло много времени, лучше взять меньше новых, но повторение не пропускать.</p></div>
+  <p>Сначала всегда «Повторение по коробкам»: это старые вопросы, которые пора освежить. Потом новые вопросы. Пока есть неизученные устные вопросы, на них 90% новых, на остальные 10%; частые устные идут первыми. Когда устные изучены, день делится пополам: остальные вопросы и повторение устных. Если на повторение ушло много времени, лучше взять меньше новых, но повторение не пропускать.</p></div>
 
   <div class="panel"><h3>Как учить новый вопрос (около 10 минут)</h3>
   <ol>
@@ -860,14 +899,14 @@ function viewGuide(app){
   <p>Повторять чаще, чем просит тренажёр, не нужно: промежутки и есть то, что переводит материал в долгую память.</p></div>
 
   <div class="panel"><h3>Сколько в день</h3>
-  <p>Новых вопросов 5-6 по плану. Повторений в первую неделю мало, к третьей-четвёртой неделе станет 15-30 в день, это нормально. Всего выходит до 2 часов. Каждый седьмой день новых вопросов нет, там по плану прогон недели и мини-экзамен.</p></div>
+  <p>Число новых вопросов тренажёр считает сам: делит неизученное на оставшиеся дни до конца этапа изучения. Чем короче срок, тем больше в день. Дату экзамена можно поменять в настройках на вкладке «Сегодня», план пересчитается. Каждый седьмой день новых вопросов нет, там по плану прогон недели и мини-экзамен.</p></div>
 
   <div class="panel"><h3>Чего не делать</h3>
   <ul>
   <li>Не перечитывать один вопрос много раз подряд: это даёт чувство «знаю», но не знание.</li>
   <li>Не учить текст дословно: на экзамене нужен смысл и структура, а не пересказ.</li>
   <li>Не подглядывать во время ответа.</li>
-  <li>Если пропустил день, не делать двойную норму. Назавтра сначала повторение, а пропущенные вопросы тренажёр сам предложит добрать по 3 в день.</li>
+  <li>Если пропустил день, не делать двойную норму. Назавтра сначала повторение, а пропущенные вопросы тренажёр сам распределит на оставшиеся дни.</li>
   </ul></div>
 
   <div class="panel"><h3>Устные вопросы</h3>

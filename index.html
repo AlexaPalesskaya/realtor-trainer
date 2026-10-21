@@ -282,15 +282,18 @@ function PL(){const D=Math.max(1,diffDays(state.start,examDay()));let mix=0,reh=
 function isRevDay(d,P){return P.L>=10&&d%7===0&&d<P.L}
 /* доля новых: пока есть неизученные устные, 90% устные и 10% остальные; потом 50% остальные и 50% повторение устных */
 function splitDay(uo,ux,C){if(uo>0){const xq=C>=3?Math.max(1,Math.round(C*.1)):0;const o=Math.min(uo,C-xq),spare=C-xq-o;return {o,x:Math.min(ux,xq+Math.ceil(spare/2)),r:0}}const x=Math.min(ux,Math.ceil(C/2));return {o:0,x,r:x?Math.ceil(C/2):0}}
+const CAPS=[[4,'около 1 часа'],[6,'около 1,5 часа'],[8,'около 2 часов'],[10,'около 2,5 часа'],[12,'около 3 часов']];
+function CAP(){return state.cap||8}
+function leftover(uo,ux,days,C){for(let i=0;i<days;i++){const s=splitDay(uo,ux,C);uo-=s.o;ux-=s.x}return {o:Math.max(0,uo),x:Math.max(0,ux)}}
 function fits(uo,ux,days,C){for(let i=0;i<days;i++){const s=splitDay(uo,ux,C);uo-=s.o;ux-=s.x;if(!uo&&!ux)return true}return !uo&&!ux}
 function learnDaysLeft(d,P){let k=0;for(let i=Math.max(d,1);i<=P.L;i++)if(!isRevDay(i,P))k++;return k}
 function dayAlloc(){
-  const d=dayNo(),P=PL(),key=today()+'|'+state.start+'|'+examDay();
+  const d=dayNo(),P=PL(),key=today()+'|'+state.start+'|'+examDay()+'|'+CAP();
   if(state.pd&&state.pd.key===key)return state.pd;
-  const r={key,oral:[],other:[],orev:0,C:0};
+  const r={key,oral:[],other:[],orev:0,C:0,need:0,short:{o:0,x:0}};
   const uo=ORAL_ORDER.filter(n=>!learned(n)),ux=OTHERS.filter(n=>!learned(n));
   if(d>=1&&d<=P.L&&!isRevDay(d,P)&&(uo.length||ux.length)){
-    const days=learnDaysLeft(d,P);let C=1;while(C<300&&!fits(uo.length,ux.length,days,C))C++;
+    const days=learnDaysLeft(d,P);let C=1;while(C<300&&!fits(uo.length,ux.length,days,C))C++;r.need=C;C=Math.min(C,CAP());r.short=leftover(uo.length,ux.length,days,C);
     const s=splitDay(uo.length,ux.length,C);r.C=C;r.oral=uo.slice(0,s.o);r.other=ux.slice(0,s.x);r.orev=Math.min(s.r,ORAL.filter(learned).length);
   }
   state.pd=r;save();return r;
@@ -378,7 +381,8 @@ function planFor(d){
       if(A.other.length){P.push({t:`Остальные вопросы: ${qw(A.other.length)}`,d:(A.oral.length?'Небольшая часть дня, после устных.':'Вторая половина дня.')+(lx.length?'':' Уже изучены.'),a:lx.length?['Изучать',()=>startLearn(lx,'Остальные вопросы')]:['Повторить',()=>startReview(A.other,'Остальные вопросы',120)]})}
       if(!A.oral.length&&!A.other.length&&!left.length) P.push({t:'Все вопросы изучены',d:'Новых нет. Повторяй по коробкам и прогоняй устные.',a:['Устные вразнобой',()=>startReview(shuffle(ORAL).slice(0,10),'Устные вопросы',180)]});
       const sub=ORAL.every(learned)?`${oralLine} Устные изучены: теперь половина времени на остальные вопросы, половина на повторение устных.`:`${oralLine} Пока есть неизученные устные, на них 90% новых, на остальные 10%.`;
-      return {stage,sub:`Неделя ${week}. ${sub}`,P};
+      const sh=A.short.o+A.short.x;const capNote=sh?` Темп ${CAP()} новых в день: до конца изучения не войдут ${qw(sh)}${A.short.o?`, из них устных ${A.short.o}`:''}. Их можно доучить на следующих этапах или увеличить темп в настройках.`:'';
+      return {stage,sub:`Неделя ${week}. ${sub}${capNote}`,P};
     }
     const wk=ALL.filter(n=>learned(n)&&card(n).l>addDays(today(),-7)&&card(n).l<today());
     P.push(dueItem);
@@ -416,6 +420,15 @@ function planFor(d){
   }
   return {stage:'Курс завершён',sub:'Если экзамен перенесли, поменяй дату экзамена в настройках ниже или занимайся в свободном режиме.',P:[dueItem]};
 }
+function periodPanel(){
+  const P=PL(),left=diffDays(today(),examDay()),a=dayAlloc(),d=dayNo();
+  const ph=d<=P.L?`изучение до ${fmtD(addDays(state.start,P.L-1))}`:d<=P.L+P.mix?`перемешивание до ${fmtD(addDays(state.start,P.L+P.mix-1))}`:'репетиция';
+  const shift=[[-7,'На неделю раньше'],[7,'+1 неделя'],[14,'+2 недели'],[30,'+1 месяц']].filter(([k])=>diffDays(today(),addDays(examDay(),k))>=1);
+  return `<div class="panel" id="period"><div class="row" style="justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.4rem"><h3 style="margin:0">Срок подготовки</h3><span class="muted">${left>0?`экзамен ${fmtD(examDay())}, осталось ${left} ${plural(left,['день','дня','дней'])}`:left===0?'экзамен сегодня':'дата экзамена прошла'}</span></div>
+  <p class="hint" style="margin:.4rem 0 .6rem">Всего ${P.D} ${plural(P.D,['день','дня','дней'])} подготовки, сейчас ${ph}. ${a.need?`Новых в день: ${Math.min(a.need,CAP())}${a.need>CAP()?` (для полного охвата нужно ${a.need}, темп ограничен ${CAP()})`:''}.`:''} Если экзамен перенесли, сдвинь дату: план, нагрузка и этапы пересчитаются, прогресс сохранится.</p>
+  <div class="row" style="flex-wrap:wrap;gap:.4rem">${shift.map(([k,t2])=>`<button class="btn small" data-shift="${k}">${t2}</button>`).join('')}<input type="date" id="exd2" value="${examDay()}" min="${addDays(today(),1)}" style="max-width:11rem"></div></div>`;
+}
+function setExam(v){if(!v||diffDays(today(),v)<1||v<=state.start){alert('Дата экзамена должна быть позже сегодняшнего дня.');render();return}state.exam=v;state.pd=null;save();render()}
 function viewToday(app){
   const d=dayNo(), p=planFor(d);
   const cnt={g:0,y:0,r:0,n:0}; ALL.forEach(n=>cnt[status(n)]++);
@@ -423,6 +436,7 @@ function viewToday(app){
   window._plan=p.P;
   app.innerHTML=`
   <div class="day"><div class="day-n">${d<1?'0':Math.min(d,PL().D)}</div><div class="day-meta"><h1>${d>=1&&d<=PL().D?`День ${d} из ${PL().D}. `:''}${h(p.stage)}</h1><p>${h(p.sub)}</p></div></div>
+  ${periodPanel()}
   <div class="panel"><div class="row" style="justify-content:space-between;align-items:baseline"><h3>План на сегодня</h3><button class="btn link" id="toguide">Как заниматься</button></div>${p.P.length?`<ol class="plan">${p.P.map((x,i)=>`<li><div><div class="t">${h(x.t)}</div>${x.d?`<div class="d">${h(x.d)}</div>`:''}</div>${x.a?`<button class="btn ${i===0||x.a[0]==='Изучать'?'primary':''}" data-plan="${i}">${h(x.a[0])}</button>`:'<span></span>'}</li>`).join('')}</ol>`:'<p class="muted">Пока нечего делать.</p>'}</div>
   <div class="panel"><h3>Картотека: ${Q.length} вопросов</h3>
   <div class="stats"><span><i class="dot" style="background:var(--g)"></i><b>${cnt.g}</b>знаю</span><span><i class="dot" style="background:var(--y)"></i><b>${cnt.y}</b>частично</span><span><i class="dot" style="background:var(--r)"></i><b>${cnt.r}</b>не знаю</span><span><i class="dot" style="background:var(--n)"></i><b>${cnt.n}</b>не изучено</span><span class="muted">Дней занятий: ${studied}</span></div>
@@ -431,18 +445,22 @@ function viewToday(app){
   <div class="panel"><h3>Настройки курса</h3>
   <div class="opt"><label for="start">Дата первого дня курса</label><input type="date" id="start" value="${state.start}" style="max-width:14rem"><span class="hint">От даты старта считается день курса.</span></div>
   <div class="opt"><label for="exd">Дата экзамена</label><input type="date" id="exd" value="${examDay()}" style="max-width:14rem"><span class="hint">Срок подготовки выбираешь сам: план пересчитывается под число дней. Сейчас ${PL().D} ${plural(PL().D,['день','дня','дней'])}: изучение ${PL().L}, перемешивание ${PL().mix}, репетиция ${PL().reh}. Новых вопросов на сегодня: ${(()=>{const a=dayAlloc();return a.oral.length+a.other.length})()}.</span></div>
+  <div class="opt"><label>Темп: новых вопросов в день, не больше</label><div class="seg">${CAPS.map(([v,t2])=>`<button data-cap="${v}" aria-pressed="${CAP()===v}">${v}</button>`).join('')}</div><span class="hint">${(()=>{const c=CAPS.find(x=>x[0]===CAP());const a=dayAlloc();const sh=a.short.o+a.short.x;return `Это ${c?c[1]:''} в день вместе с повторением. `+(a.need>CAP()?`Чтобы изучить всё к концу этапа изучения, нужно ${a.need} в день. При выбранном темпе не войдут ${qw(sh)}${a.short.o?`, из них устных ${a.short.o}`:', все не из устной части'}: их тренажёр предложит доучить на этапах перемешивания и репетиции.`:'При этом темпе всё успевается.')})()}</span></div>
   <div class="opt"><label>Резервная копия прогресса</label><span class="hint">Прогресс живёт в браузере, где открыт файл. Сохраняй копию раз в неделю, а чтобы перенести занятия на другое устройство или браузер, загрузи копию там.</span><div class="row"><button class="btn small" id="exp">Сохранить прогресс в файл</button><button class="btn small" id="imp">Загрузить прогресс из файла</button><input type="file" id="impf" accept=".json,application/json" hidden></div></div>
   <div class="row"><button class="btn small" id="reset">Сбросить весь прогресс</button></div></div>`;
   app.querySelectorAll('[data-plan]').forEach(b=>b.onclick=()=>window._plan[+b.dataset.plan].a[1]());
   app.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>openDetail(+b.dataset.q));
   document.getElementById('toguide').onclick=()=>go('guide');
   document.getElementById('start').onchange=e=>{if(e.target.value){state.start=e.target.value;if(state.exam&&state.exam<=state.start)state.exam='';state.pd=null;save();render()}};
+  app.querySelectorAll('[data-cap]').forEach(b=>b.onclick=()=>{state.cap=+b.dataset.cap;state.pd=null;save();render()});
+  app.querySelectorAll('[data-shift]').forEach(b=>b.onclick=()=>setExam(addDays(examDay(),+b.dataset.shift)));
+  document.getElementById('exd2').onchange=e=>setExam(e.target.value);
   document.getElementById('exd').onchange=e=>{if(e.target.value&&e.target.value>state.start){state.exam=e.target.value;state.pd=null;save();render()}else{alert('Дата экзамена должна быть позже даты старта.');render()}};
   document.getElementById('exp').onclick=()=>{const b=new Blob([JSON.stringify(state)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='progress-realtor-'+today()+'.json';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)};
   const impf=document.getElementById('impf');
   document.getElementById('imp').onclick=()=>impf.click();
   impf.onchange=async()=>{const f=impf.files[0];if(!f)return;try{const s=JSON.parse(await f.text());if(!s||s.v!==1||!s.cards)throw 0;if(confirm('Заменить текущий прогресс данными из файла?')){state=s;save();render()}}catch(e){alert('Это не файл прогресса тренажёра. Выбери файл, сохранённый кнопкой «Сохранить прогресс в файл».')}impf.value=''};
-  document.getElementById('reset').onclick=()=>{if(confirm('Удалить все отметки, коробки, якоря и лист цифр? Это нельзя отменить.')){const s=state.start,ex=state.exam;state=fresh();state.start=s;if(ex)state.exam=ex;save();render()}};
+  document.getElementById('reset').onclick=()=>{if(confirm('Удалить все отметки, коробки, якоря и лист цифр? Это нельзя отменить.')){const s=state.start,ex=state.exam,cp=state.cap;state=fresh();state.start=s;if(ex)state.exam=ex;if(cp)state.cap=cp;save();render()}};
 }
 
 /* ---------- learn session ---------- */
@@ -901,7 +919,7 @@ function viewGuide(app){
   <p>Повторять чаще, чем просит тренажёр, не нужно: промежутки и есть то, что переводит материал в долгую память.</p></div>
 
   <div class="panel"><h3>Сколько в день</h3>
-  <p>Число новых вопросов тренажёр считает сам: делит неизученное на оставшиеся дни до конца этапа изучения. Чем короче срок, тем больше в день. Дату экзамена можно поменять в настройках на вкладке «Сегодня», план пересчитается. Каждый седьмой день новых вопросов нет, там по плану прогон недели и мини-экзамен.</p></div>
+  <p>Число новых вопросов тренажёр считает сам: делит неизученное на оставшиеся дни до конца этапа изучения, но не больше выбранного темпа (по умолчанию 8 новых в день, это около 2 часов вместе с повторением). Если всё не помещается, первыми идут устные и частые, а остаток тренажёр предложит доучить позже. Дату экзамена можно поменять в настройках на вкладке «Сегодня», план пересчитается. Каждый седьмой день новых вопросов нет, там по плану прогон недели и мини-экзамен.</p></div>
 
   <div class="panel"><h3>Чего не делать</h3>
   <ul>
